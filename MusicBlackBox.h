@@ -131,7 +131,7 @@ class InfraRedReceiver
       this->m_receiver_handler = NULL;
     }
 
-    void begin(byte pin_infrared_rx, receiver_handler_t handler) {
+    void begin(receiver_handler_t handler, byte pin_infrared_rx) {
       this->m_pin_infrared_rx = pin_infrared_rx;
       this->m_receiver_handler = handler;
       this->m_irrecv.begin(this->m_pin_infrared_rx, DISABLE_LED_FEEDBACK);
@@ -139,10 +139,10 @@ class InfraRedReceiver
 
     void tick(void) {
       if (this->m_irrecv.decode()) {
-        this->m_irrecv.resume();
         if (this->m_irrecv.decodedIRData.protocol != UNKNOWN)
           this->on_receive();
-        delay(100);
+        delay(500);
+        this->m_irrecv.resume();
       }
     }
 
