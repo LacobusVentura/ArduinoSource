@@ -35,7 +35,8 @@ class IdleMonitor
       }
     }
 
-    void begin(unsigned long timeout) {
+    void begin(idle_handler_t handler, unsigned long timeout) {
+      this->m_idle_handler = handler;
       this->m_timeout = timeout;
     }
 
@@ -43,13 +44,9 @@ class IdleMonitor
       this->m_last_activity = millis();
     }
 
-    void set_idle_handler(idle_handler_t handler) {
-      this->m_idle_handler = handler;
-    }
-
   private:
     void on_idle_detected(void) {
-      Serial.println(F("[on_idle_detected]: Idle!"));
+      Serial.println(F("[IDLE]: Triggered!"));
       if (this->m_idle_handler)
         this->m_idle_handler();
     }
@@ -71,6 +68,12 @@ class Buzzer
       pinMode(this->m_buzzer_pin, OUTPUT);
     }
 
+    void sos(void) const {
+      this->encode(B01110000);
+      this->encode(B01110111);
+      this->encode(B01110000);
+    }
+
     void invalid_command(void) const {
       this->encode(B00110011);
     }
@@ -82,11 +85,11 @@ class Buzzer
     void system_ready(void) const {
       this->encode(B00010000);
     }
-    
+
     void data_written(void) const {
       this->encode(B01110000);
     }
-    
+
     void infrared(void) const {
       this->encode(B00110000);
     }
@@ -128,8 +131,9 @@ class InfraRedReceiver
       this->m_receiver_handler = NULL;
     }
 
-    void begin(byte pin_infrared_rx) {
+    void begin(byte pin_infrared_rx, receiver_handler_t handler) {
       this->m_pin_infrared_rx = pin_infrared_rx;
+      this->m_receiver_handler = handler;
       this->m_irrecv.begin(this->m_pin_infrared_rx, DISABLE_LED_FEEDBACK);
     }
 
@@ -140,10 +144,6 @@ class InfraRedReceiver
           this->on_receive();
         delay(100);
       }
-    }
-
-    void set_receiver_handler(receiver_handler_t handler) {
-      this->m_receiver_handler = handler;
     }
 
   private:
@@ -218,7 +218,7 @@ class PanelLeds
 class ButtonKeyPad
 {
   public:
-    typedef void (*key_press_handler_t)(int8_t);
+    typedef void (*key_press_handler_t)(byte);
 
   public:
     ButtonKeyPad(void) {
@@ -227,13 +227,15 @@ class ButtonKeyPad
       this->m_pin_latch_data = 0;
       this->m_last_state = 0;
       this->m_press_start = 0;
-      this->m_long_press_time = 2000;
       this->m_button_pressed = false;
       this->m_long_press_handler = NULL;
       this->m_short_press_handler = NULL;
     }
 
-    void begin(byte pin_latch_cs, byte pin_latch_clock, byte pin_latch_data, byte pin_line_d0, byte pin_line_d1) {
+    void begin(key_press_handler_t short_handler, key_press_handler_t long_handler,
+               byte pin_latch_cs, byte pin_latch_clock, byte pin_latch_data, byte pin_line_d0, byte pin_line_d1) {
+      this->m_long_press_handler = long_handler;
+      this->m_short_press_handler = short_handler;
       this->m_pin_latch_cs = pin_latch_cs;
       this->m_pin_latch_clock = pin_latch_clock;
       this->m_pin_latch_data = pin_latch_data;
@@ -248,40 +250,27 @@ class ButtonKeyPad
 
     void tick(void) {
       byte current = this->key_id(this->read_state());
-
-      if (this->m_button_pressed && (millis() - this->m_press_start >= this->m_long_press_time))
-      {
+      if (this->m_button_pressed && (millis() - this->m_press_start >= 2000)) {
         this->on_long_key_press(this->m_last_state);
         this->m_button_pressed = false;
       }
-      else if (!this->m_button_pressed && !this->m_last_state && current)
-      {
+      else if (!this->m_button_pressed && !this->m_last_state && current) {
         this->m_press_start = millis();
         this->m_button_pressed = true;
       }
-      else if (this->m_button_pressed && this->m_last_state && !current)
-      {
+      else if (this->m_button_pressed && this->m_last_state && !current) {
         this->on_short_key_press(this->m_last_state);
         this->m_button_pressed = false;
       }
       this->m_last_state = current;
     }
 
-    void set_long_press_handler(key_press_handler_t handler) {
-      this->m_long_press_handler = handler;
-    }
-
-    void set_short_press_handler(key_press_handler_t handler) {
-      this->m_short_press_handler = handler;
-    }
-
   private:
-    int8_t read_state(void) const {
-      uint8_t value = 0x00;
-      uint8_t state = 0x00;
-
-      for (uint8_t n = 0; n < 4; n++) {
-        value = 0x01 << n;
+    byte read_state(void) const {
+      byte value = 0;
+      byte state = 0;
+      for (byte n = 0; n < 4; n++) {
+        value = 1 << n;
         digitalWrite(this->m_pin_latch_cs, LOW);
         shiftOut(this->m_pin_latch_data, this->m_pin_latch_clock, MSBFIRST, ~value);
         digitalWrite(this->m_pin_latch_cs, HIGH);
@@ -293,23 +282,21 @@ class ButtonKeyPad
       return state;
     }
 
-    uint8_t key_id(uint8_t data) const {
+    byte key_id(byte data) const {
       for (byte i = 0; i <= 8; i++)
         if (data == (1 << i))
           return i + 1;
       return 0;
     }
 
-    void on_long_key_press(uint8_t id_key)
-    {
+    void on_long_key_press(byte id_key) {
       Serial.print(F("[KEY-LONG]: "));
       Serial.println(id_key);
       if (this->m_long_press_handler)
         this->m_long_press_handler(id_key);
     }
 
-    void on_short_key_press(uint8_t id_key)
-    {
+    void on_short_key_press(byte id_key) {
       Serial.print(F("[KEY-SHORT]: "));
       Serial.println(id_key);
       if (this->m_short_press_handler)
@@ -322,10 +309,9 @@ class ButtonKeyPad
     byte m_pin_latch_data;
     byte m_pin_line_d0;
     byte m_pin_line_d1;
-    int8_t m_last_state;
+    byte m_last_state;
     unsigned long m_press_start;
-    boolean m_button_pressed;
-    unsigned long m_long_press_time;
+    bool m_button_pressed;
     key_press_handler_t m_long_press_handler;
     key_press_handler_t m_short_press_handler;
 };
@@ -336,7 +322,7 @@ class ButtonKeyPad
 class SDCardAudioFilePlayer
 {
   public:
-    typedef void (*event_handler_t)(uint8_t, uint8_t);
+    typedef void (*event_handler_t)(byte, byte);
 
   public:
     SDCardAudioFilePlayer(void) {
@@ -349,19 +335,19 @@ class SDCardAudioFilePlayer
     bool is_playing(void) const {
       return this->m_is_playing;
     }
-    char get_id_album(void) const {
+    byte get_id_album(void) const {
       return this->m_id_album;
     }
-    char get_id_track(void) const {
+    byte get_id_track(void) const {
       return this->m_id_track;
     }
     const char * get_filename(void) const {
       return this->m_filename;
     }
 
-    char begin(byte pin_sdcard_cs, byte pin_audio_out, byte volume = 5) {
+    byte begin(byte pin_sdcard_cs, byte pin_audio_out, byte volume = 5) {
       if (!SD.begin(pin_sdcard_cs))
-        return -1;
+        return 1;
       this->m_id_album = EEPROM.read(0x00);
       Serial.print(F("[CFG-LOAD]: "));
       Serial.println(this->m_id_album);
@@ -390,11 +376,11 @@ class SDCardAudioFilePlayer
       this->m_id_album = id_album;
     }
 
-    void play(uint8_t id_track) {
-      sprintf(this->m_filename, "CFG%03d/%03d.WAV", this->m_id_album, id_track);
+    void play(byte id_track) {
+      sprintf(this->m_filename, "A%d/T%d.WAV", this->m_id_album, id_track);
       this->m_id_track = id_track;
       this->m_wavplayer.play(this->m_filename);
-      return this->tick();
+      this->tick();
     }
 
     void stop(void) {
@@ -437,8 +423,8 @@ class SDCardAudioFilePlayer
     TMRpcm m_wavplayer;
     bool m_is_playing;
     char m_filename[16];
-    int8_t m_id_album;
-    int8_t m_id_track;
+    byte m_id_album;
+    byte m_id_track;
     event_handler_t m_on_play_handler;
     event_handler_t m_on_stop_handler;
 };

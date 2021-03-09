@@ -23,10 +23,9 @@
 #define PIN_LATCH_LEDS_CS                      (A1)
 #define PIN_LATCH_LEDS_DATA                    (A0)
 
-#define AUDIO_VOLUME                           (0)
-#define AUDIO_FILE_PATH_MAX_LEN                (32)
+#define AUDIO_VOLUME                           (5)
 #define KEYPAD_LONG_PRESS                      (2000)
-#define IDLE_TIME_LIMIT                        (10000)
+#define IDLE_TIME_LIMIT                        (300000)
 
 // *********************************************************************
 // *                         DEVICES                                   *
@@ -42,27 +41,27 @@ Buzzer buzzer(PIN_BUZZER);
 // *                        HANDLERS                                   *
 // *********************************************************************
 void idle_handler(void) {
-  static const byte animation[] = {1, 2, 4, 8, 128, 64, 32, 16};
-  for (byte n = 0; n < 5; n++){
-    for (byte i = 0; i < sizeof(animation); i++){
-      leds.set_data(animation[i]);delay(20);
+  for (byte n = 0; n < 6; n++){
+    for (byte i = 0; i < 4; i++){
+      leds.set_data((n % 2) ? 1 << i : 128 >> i); delay(20);
       leds.set_data(0); delay(40);
     }
   }
+  buzzer.sos();
 }
 
-void player_on_play_handler(uint8_t id_album, uint8_t id_track) {
+void player_on_play_handler(byte id_album, byte id_track) {
   leds.set_led(id_track, true);
   idlemon.set_activity();
 }
 
-void player_on_stop_handler(uint8_t id_album, uint8_t id_track) {
+void player_on_stop_handler(byte id_album, byte id_track) {
   leds.set_led(id_track, false);
   idlemon.set_activity();
 }
 
 void infrared_receiver_handler(uint32_t cmd) {
-  uint8_t id_track = (cmd % 8) + 1;
+  byte id_track = (cmd % 8) + 1;
   if (wavplayer.is_playing() && (id_track == wavplayer.get_id_track())) {
     wavplayer.stop();
   }
@@ -77,7 +76,7 @@ void infrared_receiver_handler(uint32_t cmd) {
   idlemon.set_activity();
 }
 
-void keypad_on_long_key_press(uint8_t key) {
+void keypad_on_long_key_press(byte key) {
   if (!wavplayer.is_playing()) {
     wavplayer.set_id_album(key);
     leds.set_led(key, true);
@@ -89,7 +88,7 @@ void keypad_on_long_key_press(uint8_t key) {
   idlemon.set_activity();
 }
 
-void keypad_on_short_key_press(uint8_t key) {
+void keypad_on_short_key_press(byte key) {
   if (wavplayer.is_playing() && (key == wavplayer.get_id_track())) {
     wavplayer.stop();
   }
@@ -112,20 +111,18 @@ void setup(void)
   Serial.begin(115200);
 
   /* IDLE MONITOR */
-  idlemon.begin(IDLE_TIME_LIMIT);
-  idlemon.set_idle_handler(idle_handler);
+  idlemon.begin(idle_handler, IDLE_TIME_LIMIT);
 
   /* INFRARED RECEIVER  */
-  irrecv.begin(PIN_INFRARED_RX);
-  irrecv.set_receiver_handler(infrared_receiver_handler);
+  irrecv.begin(infrared_receiver_handler, PIN_INFRARED_RX);
 
   /* PANEL LED */
   leds.begin(PIN_LATCH_LEDS_CS, PIN_LATCH_LEDS_CLK, PIN_LATCH_LEDS_DATA);
 
   /* PANEL KEYPAD */
-  keypad.begin(PIN_LATCH_KEYPAD_CS, PIN_LATCH_KEYPAD_CLK, PIN_LATCH_KEYPAD_DATA, PIN_KEYPAD_LINE_D0, PIN_KEYPAD_LINE_D1);
-  keypad.set_long_press_handler(keypad_on_long_key_press);
-  keypad.set_short_press_handler(keypad_on_short_key_press);
+  keypad.begin(keypad_on_short_key_press, keypad_on_long_key_press,
+    PIN_LATCH_KEYPAD_CS, PIN_LATCH_KEYPAD_CLK, PIN_LATCH_KEYPAD_DATA,
+     PIN_KEYPAD_LINE_D0, PIN_KEYPAD_LINE_D1);
 
   /* SD CARD AUDIO FILE PLAYER */
   if (wavplayer.begin(PIN_SD_CARD_CS, PIN_AUDIO_OUTPUT, AUDIO_VOLUME)) {
@@ -145,7 +142,7 @@ void setup(void)
   delay(250);
   leds.set_led(wavplayer.get_id_album(), false);
 
-  Serial.println(F("Muzik 3lack B0x v1.00"));
+  Serial.println(F("-----<[ Muzik 3lack B0x v1.00 ]>-----"));
 }
 
 // *********************************************************************
